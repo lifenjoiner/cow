@@ -30,6 +30,8 @@ type Header struct {
 	ContLen             int64
 	KeepAlive           time.Duration
 	ProxyAuthorization  string
+	ProxySupport        string
+	WWWAuthenticate     bool
 	Chunking            bool
 	Trailer             bool
 	ConnectionKeepAlive bool
@@ -317,6 +319,9 @@ func ParseRequestURIBytes(rawurl []byte) (*URL, error) {
 // Note RFC2616 only says about "Connection", no "Proxy-Connection", but
 // Firefox and Safari send this header along with "Connection" header.
 // See more at http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/web-proxy-connection-header.html
+//
+// "Proxy-Support: Session-Based-Authentication" needed for tunneling NTLM,
+// https://tools.ietf.org/html/rfc4559#section-6
 const (
 	headerConnection         = "connection"
 	headerContentLength      = "content-length"
@@ -326,6 +331,8 @@ const (
 	headerProxyAuthenticate  = "proxy-authenticate"
 	headerProxyAuthorization = "proxy-authorization"
 	headerProxyConnection    = "proxy-connection"
+	headerProxySupport       = "proxy-support"
+	headerWWWAuthenticate    = "www-authenticate"
 	headerReferer            = "referer"
 	headerTE                 = "te"
 	headerTrailer            = "trailer"
@@ -335,6 +342,7 @@ const (
 	fullHeaderConnectionKeepAlive = "Connection: keep-alive\r\n"
 	fullHeaderConnectionClose     = "Connection: close\r\n"
 	fullHeaderTransferEncoding    = "Transfer-Encoding: chunked\r\n"
+	fullHeaderProxySupport        = "Proxy-Support: Session-Based-Authentication\r\n"
 )
 
 // Using Go's method expression
@@ -346,6 +354,8 @@ var headerParser = map[string]HeaderParserFunc{
 	headerKeepAlive:          (*Header).parseKeepAlive,
 	headerProxyAuthorization: (*Header).parseProxyAuthorization,
 	headerProxyConnection:    (*Header).parseConnection,
+	headerProxySupport:       (*Header).parseProxySupport,
+	headerWWWAuthenticate:    (*Header).parseWWWAuthenticate,
 	headerTransferEncoding:   (*Header).parseTransferEncoding,
 	headerTrailer:            (*Header).parseTrailer,
 }
@@ -355,6 +365,7 @@ var hopByHopHeader = map[string]bool{
 	headerKeepAlive:          true,
 	headerProxyAuthorization: true,
 	headerProxyConnection:    true,
+	headerProxySupport:       true,
 	headerTE:                 true,
 	headerTrailer:            true,
 	headerTransferEncoding:   true,
@@ -414,6 +425,19 @@ func (h *Header) parseKeepAlive(s []byte) (err error) {
 
 func (h *Header) parseProxyAuthorization(s []byte) error {
 	h.ProxyAuthorization = string(s)
+	return nil
+}
+
+func (h *Header) parseProxySupport(s []byte) error {
+	h.ProxySupport = string(s)
+	if h.ProxySupport == "" {
+		h.ProxySupport = "Session-Based-Authentication"
+	}
+	return nil
+}
+
+func (h *Header) parseWWWAuthenticate(s []byte) error {
+	h.WWWAuthenticate = len(s) > 0
 	return nil
 }
 
@@ -745,6 +769,13 @@ func parseResponse(sv *serverConn, r *Request, rp *Response) (err error) {
 	} else {
 		rp.raw.WriteString(fullHeaderConnectionClose)
 	}
+	// "Proxy-Support: Session-Based-Authentication" needed for tunneling NTLM,
+	// https://tools.ietf.org/html/rfc4559#section-6
+	// ProxySupport only for client
+	if rp.Status == 401 && rp.WWWAuthenticate {
+		rp.raw.WriteString(fullHeaderProxySupport)
+	}
+	//
 	rp.raw.WriteString(CRLF)
 
 	return nil
