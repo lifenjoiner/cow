@@ -716,17 +716,20 @@ func parseResponse(sv *serverConn, r *Request, rp *Response) (err error) {
 	}
 
 	proto := f[0]
-	if !bytes.Equal(proto[0:7], []byte("HTTP/1.")) {
+	// obselete HTTP/0.9: Response hypertext only
+	if !bytes.Equal(proto[0:5], []byte("HTTP/")) {
 		return fmt.Errorf("invalid response status line: %s request %v", string(f[0]), r)
 	}
-	if proto[7] == '1' {
-		rp.raw.Write(s)
-	} else if proto[7] == '0' {
+	if bytes.Equal(proto[5:8], []byte("1.0")) {
 		// Should return HTTP version as 1.1 to client since closed connection
 		// will be converted to chunked encoding
 		rp.genStatusLine()
 	} else {
-		return fmt.Errorf("response protocol not supported: %s", f[0])
+		// 1.1, 2.0 (spurious) ...
+		// https://http2.github.io/http2-spec/#discover-http
+		// https://http2.github.io/http2-spec/#ConnectionHeader
+		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Evolution_of_HTTP
+		rp.raw.Write(s)
 	}
 
 	if err = rp.parseHeader(reader, rp.raw, r.URL); err != nil {
