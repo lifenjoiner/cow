@@ -14,10 +14,16 @@ func isErrConnReset(err error) bool {
 	// reflect.TypeOf(err), err.Error())
 	if ne, ok := err.(*net.OpError); ok {
 		// fmt.Println("isErrConnReset net.OpError.Err type:", reflect.TypeOf(ne))
+		errMsg := ne.Err.Error()
 		if errno, enok := ne.Err.(syscall.Errno); enok {
 			// I got these number by print. Only tested on XP.
-			// fmt.Printf("isErrConnReset errno: %d\n", errno)
+			// debug.Println("isErrConnReset errno:", errno)
 			return errno == 64 || errno == 10054
+		} else if strings.Contains(errMsg, " closed") || strings.Contains(errMsg, " timeout") {
+			// "use of closed network connection" or "forcibly closed"
+			return true
+		} else if ne.Err != nil {
+			debug.Println("isErrConnReset Err:", ne.Err)
 		}
 	}
 	return false

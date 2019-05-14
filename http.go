@@ -135,6 +135,9 @@ func (r *Request) releaseBuf() {
 	}
 }
 
+// Request raw:
+// 0[saveReqLine?MethodLine:]reqLnStart[("CONNECT"?(dbgRq && verbose && !saveReqLine)?MethodLine:):genRequestLine]headStart[parsedHeader]bodyStart
+
 // rawRequest returns the raw request that can be sent directly to HTTP/1.1 server.
 func (r *Request) rawRequest() []byte {
 	return r.raw.Bytes()[r.reqLnStart:]
@@ -144,8 +147,9 @@ func (r *Request) rawBeforeBody() []byte {
 	return r.raw.Bytes()[:r.bodyStart]
 }
 
-func (r *Request) rawHeaderBody() []byte {
-	return r.raw.Bytes()[r.headStart:]
+// Header without Body
+func (r *Request) rawHeader() []byte {
+	return r.raw.Bytes()[r.headStart:r.bodyStart]
 }
 
 func (r *Request) rawBody() []byte {
