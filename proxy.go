@@ -854,6 +854,19 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 			errMsg = genErrMsg(r, nil, "Direct connection failed, always direct site.")
 			goto fail
 		}
+
+		// User's DNS/host filtering: parse host to 0.0.0.0 or 127.0.0.1
+		// For go, blocked domain causes error, it won't return 0.0.0.0, but "0.0.0.0" returns 0.0.0.0
+		// We trust DNS lookup, and leave the work to reliable DNS servers (:
+		// The error msg:
+		// 1. dial tcp: lookup ***.***.com: getaddrinfow: The requested name is valid,
+		//    but no data of the requested type was found.
+		// 2. dial tcp: lookup abc.dddeeeff.com: no such host
+		errMsg := err.Error()
+		if strings.Contains(errMsg, " lookup ") {
+			return
+		}
+
 		// net.Dial does two things: DNS lookup and TCP connection.
 		// GFW may cause failure here: make it time out or reset connection.
 		// debug.Printf("type of err %T %v\n", err, err)
