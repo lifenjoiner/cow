@@ -44,8 +44,8 @@ type rqState byte
 const (
 	rsCreated  rqState = iota
 	rsSent             // request has been sent to server
-	rsRecvBody         // response header received, receiving response body
-	rsDone
+	rsRecv             // receiving response from me
+	rsDone         	   // received
 )
 
 type Request struct {
@@ -120,11 +120,11 @@ func (r *Request) tooManyRetry() bool {
 }
 
 func (r *Request) responseNotSent() bool {
-	return r.state <= rsSent
+	return r.state < rsRecv
 }
 
-func (r *Request) hasSent() bool {
-	return r.state >= rsSent
+func (r *Request) responseHasSent() bool {
+	return r.state >= rsRecv
 }
 
 func (r *Request) releaseBuf() {
@@ -685,7 +685,7 @@ func (rp *Response) hasBody(method string) bool {
 func parseResponse(sv *serverConn, r *Request, rp *Response) (err error) {
 	var s []byte
 	reader := sv.bufRd
-	if sv.maybeFake() {
+	if sv.maybeFake(r) {
 		sv.setReadTimeout("parseResponse")
 	}
 	if s, err = reader.ReadSlice('\n'); err != nil {
@@ -698,7 +698,7 @@ func parseResponse(sv *serverConn, r *Request, rp *Response) (err error) {
 		// is caused by GFW.
 		return err
 	}
-	if sv.maybeFake() {
+	if sv.maybeFake(r) {
 		sv.unsetReadTimeout("parseResponse")
 	}
 	// debug.Printf("Response line %s", s)
