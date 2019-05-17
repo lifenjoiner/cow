@@ -813,6 +813,9 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 	var errMsg string
 	if config.AlwaysProxy {
 		if srvconn, err = parentProxy.connect(r.URL); err == nil {
+			if dbgRq {
+				dbgRq.Printf("cli(%s) CONNECT  proxy(%s) <- %s\n", c.RemoteAddr(), srvconn.RemoteAddr(), r)
+			}
 			return
 		}
 		errMsg = genErrMsg(r, nil, "Parent proxy connection failed, always use parent proxy.")
@@ -821,6 +824,9 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 	if siteInfo.AsBlocked() && !parentProxy.empty() {
 		// In case of connection error to socks server, fallback to direct connection
 		if srvconn, err = parentProxy.connect(r.URL); err == nil {
+			if dbgRq {
+				dbgRq.Printf("cli(%s) CONNECT  proxy(%s) <- %s\n", c.RemoteAddr(), srvconn.RemoteAddr(), r)
+			}
 			return
 		}
 		if siteInfo.AlwaysBlocked() {
@@ -860,9 +866,9 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 		var socksErr error
 		if srvconn, socksErr = parentProxy.connect(r.URL); socksErr == nil {
 			c.handleBlockedRequest(r, err)
-			if debug {
-				debug.Printf("cli(%s) direct connection failed, use parent proxy for %v\n",
-					c.RemoteAddr(), r)
+			if dbgRq {
+				dbgRq.Printf("cli(%s) direct connection failed, use parent proxy(%s) for %v\n",
+					c.RemoteAddr(), srvconn.RemoteAddr(), r)
 			}
 			return srvconn, nil
 		}
