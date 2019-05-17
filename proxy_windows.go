@@ -23,6 +23,8 @@ func isErrConnReset(err error) bool {
 			// "use of closed network connection" or "forcibly closed"
 			return true
 		} else if ne.Err != nil {
+			// wsasend: An established connection was aborted by the software in your host machine.
+			// Not firewall interruption error, FIN following request
 			debug.Println("isErrConnReset Err:", ne.Err)
 		}
 	}

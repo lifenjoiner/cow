@@ -1336,7 +1336,7 @@ func (sv *serverConn) sendRequestBody(r *Request, c *clientConn) (err error) {
 	return
 }
 
-// Do HTTP request other that CONNECT
+// Do HTTP request rather than CONNECT
 func (sv *serverConn) doRequest(c *clientConn, r *Request, rp *Response) (err error) {
 	debug.Printf("doRequest: cli(%s)->srv(%s)\n", c.RemoteAddr(), r.URL.HostPort)
 	r.state = rsCreated
@@ -1492,6 +1492,10 @@ func sendBodySplitIntoChunk(w io.Writer, r *bufio.Reader) (err error) {
 
 // Send message body.
 func sendBody(w io.Writer, bufRd *bufio.Reader, contLen int, chunk bool) (err error) {
+	// wsasend: An established connection was aborted by the software in your host machine.
+	// Sometimes client send TCP FIN immediately after a request. w becomes unavailable ):
+	// Not big deal, just write and feedback.
+	//
 	// chunked encoding has precedence over content length
 	// COW does not sanitize response header, but can correctly handle it
 	if chunk {
