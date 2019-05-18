@@ -81,7 +81,8 @@ func (dc directConn) String() string {
 type serverConnState byte
 
 const (
-	svConnected serverConnState = iota
+	svSYNed serverConnState = iota
+	svCONNECTed
 	svSendRecvClientHello // further than CONNECT
 	svSendRecvRequest
 	svSendRecvResponse
@@ -382,7 +383,7 @@ end:
 	return errPageSent
 }
 
-// DNS Lookup --> TCP Connect --> (http-request|https-hello) --> (RST|timeout)
+// DNS Lookup --> TCP SYN --> [CONNECT] --> (http-request|https-hello) --> (FIN|RST|timeout)
 // FIN won't cause error
 func (c *clientConn) shouldRetry(r *Request, sv *serverConn, re error) bool {
 	if !isErrRetry(re) {
@@ -468,6 +469,7 @@ func (c *clientConn) serve() {
 			panic("client read buffer nil")
 		}
 
+		// 1 package or multiple packages (my sendHTTPProxyRequestHeader, delayed)
 		if err = parseRequest(c, &r); err != nil {
 			debug.Printf("cli(%s) parse request %v\n", c.RemoteAddr(), err)
 			if err == io.EOF || isErrConnReset(err) {
@@ -741,7 +743,7 @@ func (c *clientConn) getServerConn(r *Request) (*serverConn, error) {
 		// For websites like feedly, the site itself is not blocked, but the
 		// content it loads may result reset. So we should reset server
 		// connection state to just connected.
-		sv.state = svConnected
+		sv.state = svCONNECTed
 		if debug {
 			debug.Printf("cli(%s) connPool get %s\n", c.RemoteAddr(), r.URL.HostPort)
 		}
@@ -902,6 +904,7 @@ func (c *clientConn) createServerConn(r *Request, siteInfo *VisitCnt) (*serverCo
 		return nil, err
 	}
 	sv := newServerConn(srvconn, r.URL.HostPort, siteInfo)
+	sv.state = svSYNed
 	if debug {
 		debug.Printf("cli(%s) connected to %s %d concurrent connections\n",
 			c.RemoteAddr(), sv.hostPort, incSrvConnCnt(sv.hostPort))
@@ -1067,7 +1070,7 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 		// when retry CONNECT before TLS HELLO, just skip forward the response to client, and then deliver TLS HELLO
 		if r.isRetry() && sv.state < svSendRecvClientHello {
 			debug.Printf("Skip remote response for CONNECT: srv(%s)->cli(%s)\n", r.URL.HostPort, c.RemoteAddr())
-			sv.state = svSendRecvClientHello
+			sv.state = svCONNECTed
 			continue
 		}
 
@@ -1079,7 +1082,11 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 		// debug.Printf("srv(%s)->cli(%s) sent %d bytes data\n", r.URL.HostPort, c.RemoteAddr(), n)
 		// set state to rsRecv to indicate the request has partial response sent to client
 		r.state = rsRecv
-		sv.state = svSendRecvResponse
+		if r.isConnect && sv.state < svSendRecvClientHello {
+			sv.state = svSendRecvClientHello
+		} else {
+			sv.state = svSendRecvResponse
+		}
 		if total > directThreshold {
 			sv.updateVisit()
 		}
@@ -1131,12 +1138,14 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 	}()
 
 	var n int
+	var start time.Time
 
-	// rawBody to be sent in doRequest
+	// Just forward the rawBody/incoming data
 	// if isTLSHello, should wait until server is ready
+	start = time.Now()
 	if r.isRetry() && len(r.rawBody()) > 0 {
 		// block until CONNECT returns OK
-		for r.isConnect && sv.state < svSendRecvClientHello {
+		for r.isConnect && sv.state < svCONNECTed && time.Now().Sub(start) < 10 * time.Second {
 			time.Sleep(1)
 		}
 		if debug {
@@ -1166,7 +1175,6 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 		c.releaseBuf()
 	}
 
-	var start time.Time
 	if config.DetectSSLErr {
 		start = time.Now()
 	}
@@ -1211,6 +1219,8 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 			return
 		}
 		// debug.Printf("cli(%s)->srv(%s) sent %d bytes data\n", c.RemoteAddr(), r.URL.HostPort, n)
+		// if here are separated CONNECT packages, it is still CONNECT, and data from the beginning.
+		// Implies: r.hasBody() and has been forwarded
 		if sv.state < svSendRecvClientHello {
 			sv.state = svSendRecvClientHello
 		} else {
@@ -1275,6 +1285,10 @@ func (sv *serverConn) doConnect(r *Request, c *clientConn) (err error) {
 	return
 }
 
+// In separated packages? Yes, but ...
+// How to be parsed when face this as cow server?
+// Conn.Buf is maintained as a file by the driver!
+// once for 1 connection
 func (sv *serverConn) sendHTTPProxyRequestHeader(r *Request, c *clientConn) (err error) {
 	// debug.Println("r.proxyRequestLine()", r.proxyRequestLine())
 	if _, err = sv.Write(r.proxyRequestLine()); err != nil {
@@ -1288,6 +1302,8 @@ func (sv *serverConn) sendHTTPProxyRequestHeader(r *Request, c *clientConn) (err
 				"send proxy authorization header to http parent")
 		}
 	}
+	// Still not "\r\n\r\n" end!
+
 	// When retry, body is in raw buffer.
 	// debug.Println("r.rawHeader()", r.rawHeader())
 	if _, err = sv.Write(r.rawHeader()); err != nil {

@@ -10,7 +10,7 @@ COW uses separate goroutines to read client requests and server responses.
 
 - For each client, COW will create one *request goroutine* to
   - accept client request (read from client connection)
-  - create connection if no one not exist
+  - create connection if no one to the server exists
   - send request to the server (write to server connection)
 - For each server connection, there will be an associated *response goroutine*
   - reading response from the web server (read from server connection)
