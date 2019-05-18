@@ -811,6 +811,8 @@ func maybeBlocked(err error) bool {
 	return isErrTimeout(err) || isErrConnReset(err) || isHttpErrCode(err)
 }
 
+var connBadRequest = []byte("HTTP/1.1 400 Bad Request\r\n\r\n")
+
 // Connect to requested server according to whether it's visit count.
 // If direct connection fails, try parent proxies.
 func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, err error) {
@@ -868,6 +870,9 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 		// 2. dial tcp: lookup abc.dddeeeff.com: no such host
 		errMsg := err.Error()
 		if strings.Contains(errMsg, " lookup ") {
+			debug.Println("DNS lookup failed:", r.URL.Host)
+			c.Write(connBadRequest)
+			// the desired err
 			return
 		}
 
