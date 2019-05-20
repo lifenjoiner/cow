@@ -410,7 +410,7 @@ func (c *clientConn) shouldRetry(r *Request, sv *serverConn, re error) bool {
 		panic(msg)
 	}
 	if r.tooManyRetry() {
-		if sv.isInterruptionStage(r) {
+		if sv.isAttackableState(r) {
 			// Sometimes GFW reset will got EOF error leading to retry too many times.
 			// In that case, consider the url as temp blocked and try parent proxy.
 			siteStat.TempBlocked(r.URL)
@@ -621,7 +621,7 @@ func (c *clientConn) handleServerReadError(r *Request, sv *serverConn, err error
 	if err == io.EOF {
 		return RetryError{err}
 	}
-	if sv.isInterruptionStage(r) && maybeBlocked(err) {
+	if sv.isAttackableState(r) && maybeBlocked(err) {
 		return c.handleBlockedRequest(r, err)
 	}
 	if r.responseNotSent() {
@@ -635,7 +635,7 @@ func (c *clientConn) handleServerReadError(r *Request, sv *serverConn, err error
 func (c *clientConn) handleServerWriteError(r *Request, sv *serverConn, err error, msg string) error {
 	// This function is only called in doRequest, no response is sent to client.
 	// So if visiting blocked site, can always retry request.
-	if sv.isInterruptionStage(r) && isErrConnReset(err) {
+	if sv.isAttackableState(r) && isErrConnReset(err) {
 		siteStat.TempBlocked(r.URL)
 	}
 	return RetryError{err}
@@ -865,12 +865,7 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 		// User's DNS/host filtering: parse host to 0.0.0.0 or 127.0.0.1
 		// For go, blocked domain causes error, it won't return 0.0.0.0, but "0.0.0.0" returns 0.0.0.0
 		// We trust DNS lookup, and leave the work to reliable DNS servers (:
-		// The error msg:
-		// 1. dial tcp: lookup ***.***.com: getaddrinfow: The requested name is valid,
-		//    but no data of the requested type was found.
-		// 2. dial tcp: lookup abc.dddeeeff.com: no such host
-		errMsg := err.Error()
-		if strings.Contains(errMsg, " lookup ") {
+		if isDNSError(err) {
 			debug.Println("DNS lookup failed:", r.URL.Host)
 			c.Write(connBadRequest)
 			// the desired err
@@ -890,7 +885,7 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 		if srvconn, socksErr = parentProxy.connect(r.URL); socksErr == nil {
 			c.handleBlockedRequest(r, err)
 			if dbgRq {
-				dbgRq.Printf("cli(%s) direct connection failed, use parent proxy(%s) for %v\n",
+				dbgRq.Printf("cli(%s) direct connection failed, use parent proxy(%s) to %v\n",
 					c.RemoteAddr(), srvconn.RemoteAddr(), r)
 			}
 			return srvconn, nil
@@ -972,11 +967,16 @@ func (sv *serverConn) Close() error {
 	return sv.Conn.Close()
 }
 
+func (sv *serverConn) willTryProxy() bool {
+	return sv.isDirect() && !sv.siteInfo.AlwaysDirect()
+}
+
 // TCP connection established, could be TLS handshake or http request
-func (sv *serverConn) isInterruptionStage(r *Request) bool {
-	return ((r.isConnect && sv.state <= svSendRecvClientHello) ||
-			(!r.isConnect && sv.state <= svSendRecvRequest)) &&
-			sv.isDirect() && !sv.siteInfo.AlwaysDirect()
+func (sv *serverConn) isAttackableState(r *Request) bool {
+	return svCONNECTed < sv.state &&
+			((r.isConnect && sv.state <= svSendRecvClientHello) ||
+				(!r.isConnect && sv.state <= svSendRecvRequest)) &&
+			sv.willTryProxy()
 }
 
 func setConnReadTimeout(cn net.Conn, d time.Duration, msg string) {
@@ -1006,16 +1006,18 @@ func (sv *serverConn) unsetReadTimeout(msg string) {
 	unsetConnReadTimeout(sv.Conn, msg)
 }
 
-func (sv *serverConn) isNextPackageQuick(cliStart time.Time) bool {
+func isNextPackageQuick(cliStart time.Time) bool {
 	// Case 1: client sends close
 	// If client closes connection very soon, maybe there's SSL error, maybe
 	// not (e.g. user stopped request).
 	// COW can't tell which is the case, so this detection is not reliable.
-	// wget sends RST, curl sends FIN when finish
+	// * https cert error, close
+	// * Firefox session reload, send FIN to the connection immediately.
+	// * wget sends RST, curl sends FIN when finish
 	// Case 2: server sends close
 	// Connected, but TLS handshake packages with server are dropped by the firewall,
 	// then get server ACK and RST (fake) the connection!
-	return sv.state <= svSendRecvClientHello && time.Now().Sub(cliStart) < sslLeastDuration
+	return time.Now().Sub(cliStart) < sslLeastDuration
 }
 
 func (sv *serverConn) mayBeClosed() bool {
@@ -1043,7 +1045,7 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 
 	/*
 		// force retry for debugging
-		if r.tryCnt == 1 && sv.isInterruptionStage(r) {
+		if r.tryCnt == 1 && sv.isAttackableState(r) {
 			time.Sleep(1)
 			return RetryError{errors.New("debug retry in copyServer2Client")}
 		}
@@ -1054,7 +1056,7 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 	readTimeoutSet := false
 	for {
 		// debug.Println("srv->cli")
-		if sv.isInterruptionStage(r) {
+		if sv.isAttackableState(r) {
 			sv.setReadTimeout("srv->cli")
 			readTimeoutSet = true
 		} else if readTimeoutSet {
@@ -1063,7 +1065,8 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 		}
 		var n int
 		if n, err = sv.Read(buf); err != nil {
-			if sv.isInterruptionStage(r) && maybeBlocked(err) {
+			if sv.isAttackableState(r) && maybeBlocked(err) {
+				// not initiated by client
 				siteStat.TempBlocked(r.URL)
 				debug.Printf("srv->cli blocked site %s detected, err: %v retry\n", r.URL.HostPort, err)
 				return RetryError{err}
@@ -1074,7 +1077,7 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 			return
 		}
 		// when retry CONNECT before TLS HELLO, just skip forward the response to client, and then deliver TLS HELLO
-		if r.isRetry() && sv.state < svSendRecvClientHello {
+		if r.isRetry() && sv.state < svCONNECTed {
 			debug.Printf("Skip remote response for CONNECT: srv(%s)->cli(%s)\n", r.URL.HostPort, c.RemoteAddr())
 			sv.state = svCONNECTed
 			continue
@@ -1131,7 +1134,7 @@ func (sw *serverWriter) Write(p []byte) (int, error) {
 
 func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped notification, done chan struct{}) (err error) {
 	debug.Printf("copyClient2Server: cli(%s)->srv(%s)\n", c.RemoteAddr(), r.URL.HostPort)
-	// sv.isInterruptionStage may change during execution in this function.
+	// sv.isAttackableState may change during execution in this function.
 	// So need a variable to record the whether timeout is set.
 	deadlineIsSet := false
 	defer func() {
@@ -1148,11 +1151,11 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 
 	// Just forward the rawBody/incoming data
 	// if isTLSHello, should wait until server is ready
-	start = time.Now()
 	if r.isRetry() && len(r.rawBody()) > 0 {
 		// debug.Printf("has data after connecting: %s\n", r.URL.HostPort)
 		// block until CONNECT returns OK or fails again
 		for r.isConnect && sv.state < svCONNECTed && sv.bufRd != nil {
+			debug.Printf("waiting parent proxy get ready\n")
 			time.Sleep(1)
 		}
 		if debug {
@@ -1191,17 +1194,20 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 	}()
 	for {
 		// debug.Println("cli->srv")
-		if sv.isInterruptionStage(r) {
+		if sv.isAttackableState(r) {
 			setConnReadTimeout(c.Conn, time.Second, "cli->srv")
 			deadlineIsSet = true
 		} else if deadlineIsSet {
-			// isInterruptionStage may trun to false after timeout, but timeout should be unset
+			// isAttackableState may trun to false after timeout, but timeout should be unset
 			unsetConnReadTimeout(c.Conn, "cli->srv before read")
 			deadlineIsSet = false
 		}
 		if n, err = c.Read(buf); err != nil {
-			if config.DetectSSLErr && sv.isInterruptionStage(r) && (isErrConnReset(err) || err == io.EOF) &&
-				sv.isNextPackageQuick(start) {
+			if config.DetectSSLErr && sv.isAttackableState(r) && (isErrConnReset(err) || err == io.EOF) &&
+				isNextPackageQuick(start){
+				// 0. server error is caught in copyServer2Client routin
+				// 1. https cert err, client close, retry; Hello sent
+				// 2. Firefox session reload, send FIN to the connection immediately, pass; no data sent
 				debug.Println("client connection closed very soon, taken as SSL error:", r)
 				siteStat.TempBlocked(r.URL)
 			} else if isErrTimeout(err) && !srvStopped.hasNotified() {
@@ -1216,7 +1222,7 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 		if _, err = w.Write(buf[:n]); err != nil {
 			// XXX is it enough to only do block detection in copyServer2Client?
 			/*
-				if sv.isInterruptionStage(r) && isErrConnReset(err) {
+				if sv.isAttackableState(r) && isErrConnReset(err) {
 					siteStat.TempBlocked(r.URL)
 					errl.Printf("copyClient2Server blocked site %d detected, retry\n", r.URL.HostPort)
 					return RetryError{err}

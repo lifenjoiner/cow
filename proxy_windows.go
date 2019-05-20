@@ -31,17 +31,14 @@ func isErrConnReset(err error) bool {
 	return false
 }
 
+// The error msg:
+// 1. dial tcp: lookup ***.***.com: getaddrinfow: The requested name is valid,
+//    but no data of the requested type was found.
+// 2. dial tcp: lookup abc.dddeeeff.com: no such host
 func isDNSError(err error) bool {
-	/*
-		fmt.Printf("calling isDNSError for err type: %v %s\n",
-			reflect.TypeOf(err), err.Error())
-	*/
-	// DNS error are not of type DNSError on Windows, so I used this ugly
-	// hack.
+	// DNS error are not of type DNSError on Windows
 	errMsg := err.Error()
-	return strings.Contains(errMsg, "No such host") ||
-		strings.Contains(errMsg, "GetAddrInfoW") ||
-		strings.Contains(errMsg, "dial tcp")
+	return strings.Contains(errMsg, " lookup ")
 }
 
 func isErrOpWrite(err error) bool {
