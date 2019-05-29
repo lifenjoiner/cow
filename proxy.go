@@ -1210,11 +1210,12 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 			deadlineIsSet = false
 		}
 		if n, err = c.Read(buf); err != nil {
-			if config.DetectSSLErr && sv.isAttackableState(r) && (isErrConnReset(err) || err == io.EOF) &&
+			if config.DetectSSLErr && sv.isAttackableState(r) && isErrConnReset(err) &&
 				isNextPackageQuick(start){
 				// 0. server error is caught in copyServer2Client routin
 				// 1. https cert err, client close, retry; Hello sent
 				// 2. Firefox session reload, send FIN to the connection immediately, pass; no data sent
+				// chrome: just stop to send new TCP packet, neither FIN nor RST; we catch the fake server RST
 				info.Println("client connection closed very soon, taken as SSL error:", err)
 				siteStat.TempBlocked(r.URL)
 			} else if isErrTimeout(err) && !srvStopped.hasNotified() {

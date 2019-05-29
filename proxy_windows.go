@@ -19,8 +19,9 @@ func isErrConnReset(err error) bool {
 			// I got these number by print. Only tested on XP.
 			// debug.Println("isErrConnReset errno:", errno)
 			return errno == 64 || errno == 10054
-		} else if strings.Contains(errMsg, " closed") || strings.Contains(errMsg, " timeout") {
-			// "use of closed network connection" or "forcibly closed"
+		} else if strings.Contains(errMsg, "forcibly closed") || strings.Contains(errMsg, " timeout") {
+			// "forcibly closed"
+			// "use of closed network connection" occurs in firefox session reloading, legal close
 			return true
 		} else if ne.Err != nil {
 			// wsasend: An established connection was aborted by the software in your host machine.
