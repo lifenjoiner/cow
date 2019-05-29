@@ -550,7 +550,7 @@ func (c *clientConn) serve() {
 			return
 		}
 
-		// HTTP CONNECT, https://en.wikipedia.org/wiki/HTTP_tunnel#HTTP_CONNECT_method
+		// HTTP CONNECT, HTTPS, https://en.wikipedia.org/wiki/HTTP_tunnel#HTTP_CONNECT_method
 		if r.isConnect {
 			// server connection will be closed in doConnect
 			err = sv.doConnect(&r, c)
@@ -561,6 +561,7 @@ func (c *clientConn) serve() {
 			return
 		}
 
+		// HTTP
 		if err = sv.doRequest(c, &r, &rp); err != nil {
 			// For client I/O error, we can actually put server connection to
 			// pool. But let's make thing simple for now.
@@ -583,6 +584,11 @@ func (c *clientConn) serve() {
 			// If the server connection is not going to be used soon,
 			// release buffer before putting back to pool can save memory.
 			sv.releaseBuf()
+			// Would there be zombies that occupied the seats?
+			// closeStaleServerConn is scheduled to clean in loop when the channel is created.
+			// sv.willCloseOn is set when get response and say rp.ConnectionKeepAlive,
+			// and getConnFromChan closes the overtimed ones match the selection only.
+			// sv that lost control and won't be used again would be zombies!
 			connPool.Put(sv)
 		} else {
 			if debug {

@@ -8,7 +8,7 @@ import (
 )
 
 // Maximum number of connections to a server.
-const maxServerConnCnt = 5
+const maxServerConnCnt = 32
 
 // Store each server's connections in separate channels, getting
 // connections for different servers can be done in parallel.
@@ -20,7 +20,7 @@ type ConnPool struct {
 
 var connPool = &ConnPool{
 	idleConn: map[string]chan *serverConn{},
-	muxConn:  make(chan *serverConn, maxServerConnCnt*2),
+	muxConn:  make(chan *serverConn, maxServerConnCnt),
 }
 
 const muxConnHostPort = "@muxConn"
@@ -55,7 +55,7 @@ func putConnToChan(sv *serverConn, ch chan *serverConn, chname string) {
 		// A better solution would remove old connections from the channel and
 		// add the new one. But's it's more complicated and this should happen
 		// rarely.
-		debug.Printf("connPool channel %s: full", chname)
+		info.Printf("connPool channel %s: full", chname)
 		sv.Close()
 	}
 }
@@ -89,6 +89,8 @@ func (cp *ConnPool) Get(hostPort string, asDirect bool) (sv *serverConn) {
 	return sv
 }
 
+// Consider there are zombies that occupied the seats :)
+// closeStaleServerConn is scheduled to clean in loop when the channel is created.
 func (cp *ConnPool) Put(sv *serverConn) {
 	// Multiplexing connections.
 	switch sv.Conn.(type) {
