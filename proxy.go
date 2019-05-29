@@ -1065,13 +1065,14 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 		}
 		var n int
 		if n, err = sv.Read(buf); err != nil {
+			// also in case of only 1 server TCP RST which is abnormal
 			if sv.isAttackableState(r) && maybeBlocked(err) {
 				// not initiated by client
 				siteStat.TempBlocked(r.URL)
-				debug.Printf("srv->cli blocked site %s detected, err: %v retry\n", r.URL.HostPort, err)
+				info.Printf("srv->cli blocked site %s detected, err: %v retry\n", r.URL.HostPort, err)
 				return RetryError{err}
 			}
-			// Expected error besides EOF: "use of closed network connection",
+			// Expected error besides EOF
 			// this is to make blocking read return.
 			// debug.Printf("copyServer2Client read data: %v\n", err)
 			return
@@ -1208,7 +1209,7 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 				// 0. server error is caught in copyServer2Client routin
 				// 1. https cert err, client close, retry; Hello sent
 				// 2. Firefox session reload, send FIN to the connection immediately, pass; no data sent
-				debug.Println("client connection closed very soon, taken as SSL error:", r)
+				info.Println("client connection closed very soon, taken as SSL error:", err)
 				siteStat.TempBlocked(r.URL)
 			} else if isErrTimeout(err) && !srvStopped.hasNotified() {
 				// debug.Printf("cli(%s)->srv(%s) timeout\n", c.RemoteAddr(), r.URL.HostPort)

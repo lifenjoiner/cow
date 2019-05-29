@@ -29,10 +29,11 @@ var (
 	logFile io.Writer
 
 	// make sure logger can be called before initLog
-	errorLog    = log.New(os.Stdout, "[ERROR] ", log.LstdFlags)
-	debugLog    = log.New(os.Stdout, "[DEBUG] ", log.LstdFlags)
-	requestLog  = log.New(os.Stdout, "[>>>>>] ", log.LstdFlags)
-	responseLog = log.New(os.Stdout, "[<<<<<] ", log.LstdFlags)
+	infoLog     = log.New(os.Stdout, "[MSG] ", log.LstdFlags)
+	errorLog    = log.New(os.Stdout, "[ERR] ", log.LstdFlags)
+	debugLog    = log.New(os.Stdout, "[DBG] ", log.LstdFlags)
+	requestLog  = log.New(os.Stdout, "[>>>] ", log.LstdFlags)
+	responseLog = log.New(os.Stdout, "[<<<] ", log.LstdFlags)
 
 	verbose  bool
 	colorize bool
@@ -64,21 +65,22 @@ func initLog() {
 	} else {
 		color.SetDefaultColor(color.NoColor)
 	}
-	errorLog = log.New(logFile, color.Red("[ERROR] "), log.LstdFlags)
-	debugLog = log.New(logFile, color.Blue("[DEBUG] "), log.LstdFlags)
-	requestLog = log.New(logFile, color.Green("[>>>>>] "), log.LstdFlags)
-	responseLog = log.New(logFile, color.Yellow("[<<<<<] "), log.LstdFlags)
+	infoLog = log.New(logFile, color.Cyan("[MSG] "), log.LstdFlags)
+	errorLog = log.New(logFile, color.Red("[ERR] "), log.LstdFlags)
+	debugLog = log.New(logFile, color.Blue("[DBG] "), log.LstdFlags)
+	requestLog = log.New(logFile, color.Green("[>>>] "), log.LstdFlags)
+	responseLog = log.New(logFile, color.Yellow("[<<<] "), log.LstdFlags)
 }
 
 func (d infoLogging) Printf(format string, args ...interface{}) {
 	if d {
-		log.Printf(format, args...)
+		infoLog.Printf(format, args...)
 	}
 }
 
 func (d infoLogging) Println(args ...interface{}) {
 	if d {
-		log.Println(args...)
+		infoLog.Println(args...)
 	}
 }
 
