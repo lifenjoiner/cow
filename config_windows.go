@@ -7,9 +7,9 @@ import (
 
 const (
 	rcFname      = "rc.txt"
-	blockedFname = "blocked.txt"
-	directFname  = "direct.txt"
-	statFname    = "stat.txt"
+	blockedFname = "blocked"
+	directFname  = "direct"
+	statFname    = "stat.json"
 
 	newLine = "\r\n"
 )

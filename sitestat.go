@@ -317,11 +317,6 @@ func (ss *SiteStat) loadList(lst []string, direct, blocked vcntint) {
 	}
 }
 
-func (ss *SiteStat) loadBuiltinList() {
-	ss.loadList(blockedDomainList, 0, userCnt)
-	ss.loadList(directDomainList, userCnt, 0)
-}
-
 func (ss *SiteStat) loadUserList() {
 	if directList, err := loadSiteList(config.DirectFile); err == nil {
 		ss.loadList(directList, userCnt, 0)
@@ -368,8 +363,6 @@ func (ss *SiteStat) filterSites() {
 
 func (ss *SiteStat) load(file string) (err error) {
 	defer func() {
-		// load builtin list first, so user list can override builtin
-		ss.loadBuiltinList()
 		ss.loadUserList()
 		ss.filterSites()
 		for host, vcnt := range ss.Vcnt {
@@ -491,7 +484,8 @@ func loadSiteList(fpath string) (lst []string, err error) {
 	lst = make([]string, 0)
 	for scanner.Scan() {
 		site := strings.TrimSpace(scanner.Text())
-		if site == "" {
+		// accept hosts file comments
+		if site == "" || site[0:1] == "#" {
 			continue
 		}
 		lst = append(lst, site)

@@ -39,7 +39,6 @@ func init() {
 var httpProxy = 'PROXY {{.ProxyAddr}}; DIRECT';
 
 var directList = [
-"",
 "{{.DirectDomains}}"
 ];
 
