@@ -151,6 +151,7 @@ listen = http://127.0.0.1:7777
 # cow uses this site to estimate timeout, better to use a fast website.
 #estimateTarget = example.com
 
+# For local Loopback Address: ALL ports are allowed; Others are limited as:
 # Ports allowed to create tunnel (HTTP CONNECT method), comma separated list
 # or repeat to append more ports.
 # Ports for the following service are allowed by default:

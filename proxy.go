@@ -506,7 +506,9 @@ func (c *clientConn) serve() {
 			authed = true
 		}
 
-		if r.isConnect && !config.TunnelAllowedPort[r.URL.Port] {
+		svAddr := c.RemoteAddr().String();
+		if !strings.HasPrefix(svAddr, "127.") && !strings.HasPrefix(svAddr, "[::1]") &&
+		r.isConnect && !config.TunnelAllowedPort[r.URL.Port] {
 			sendErrorPage(c, statusForbidden, "Forbidden tunnel port",
 				genErrMsg(&r, nil, "Please contact proxy admin."))
 			return

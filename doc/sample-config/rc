@@ -132,6 +132,7 @@ listen = http://127.0.0.1:7777
 # 检测超时时间使用的网站，最好使用能快速访问的站点
 #estimateTarget = example.com
 
+# 本地回环地址服务允许请求所有端口，其它规则如下
 # 允许建立隧道连接的端口，多个端口用逗号分隔，可重复多次
 # 默认总是允许下列服务的端口: ssh, http, https, rsync, imap, pop, jabber, cvs, git, svn
 # 如需允许其他端口，请用该选项添加
