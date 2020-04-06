@@ -819,7 +819,10 @@ func maybeBlocked(err error) bool {
 	return isErrTimeout(err) || isErrConnReset(err) || isHttpErrCode(err)
 }
 
-// https://tools.ietf.org/html/rfc7231#section-6.5.1
+// Successful: https://tools.ietf.org/html/rfc7231#section-6.3.5
+// BUT: for example, jquery only takes 200 as success
+// var connBadRequest = []byte("HTTP/1.1 204 No Content\r\n\r\n")
+// Error: https://tools.ietf.org/html/rfc7231#section-6.5.1
 var connBadRequest = []byte("HTTP/1.1 400 Bad Request\r\n\r\n")
 
 // Connect to requested server according to whether it's visit count.
@@ -861,15 +864,6 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 		if srvconn, err = connectDirect(r.URL, siteInfo); err == nil {
 			return
 		}
-		if parentProxy.empty() {
-			errMsg = genErrMsg(r, nil, "Direct connection failed, no parent proxy.")
-			goto fail
-		}
-		if siteInfo.AlwaysDirect() {
-			errMsg = genErrMsg(r, nil, "Direct connection failed, always direct site.")
-			goto fail
-		}
-
 		// User's DNS/host filtering: parse host to 0.0.0.0 or 127.0.0.1
 		// For go, blocked domain causes error, it won't return 0.0.0.0, but "0.0.0.0" returns 0.0.0.0
 		// We trust DNS lookup, and leave the work to reliable DNS servers (:
@@ -878,6 +872,15 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 			c.Write(connBadRequest)
 			// the desired err
 			return
+		}
+
+		if parentProxy.empty() {
+			errMsg = genErrMsg(r, nil, "Direct connection failed, no parent proxy.")
+			goto fail
+		}
+		if siteInfo.AlwaysDirect() {
+			errMsg = genErrMsg(r, nil, "Direct connection failed, always direct site.")
+			goto fail
 		}
 
 		// net.Dial does two things: DNS lookup and TCP connection.
