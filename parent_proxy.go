@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"bytes"
 )
 
 // Interface that all types of parent proxies should support.
@@ -236,6 +237,69 @@ func (pp *latencyParentPool) connect(url *URL) (srvconn net.Conn, err error) {
 	return nil, err
 }
 
+// test connect quality to + on parent proxy
+func (parent *ParentWithLatency) solveParentConnect(HostPort string) (srvconn net.Conn, err error) {
+	url := &URL{}
+	url.ParseHostPort(HostPort)
+	debug.Println("solve latency via proxy")
+	if srvconn, err = parent.ParentProxy.connect(url); err != nil {
+		return
+	}
+
+	switch parent.ParentProxy.(type) {
+	case *httpParent, *cowParent:
+		break
+	default:
+		return
+	}
+
+	buf := connectBuf.Get()
+	defer connectBuf.Put(buf)
+	payload := []byte("CONNECT "+ HostPort +" HTTP/1.1\r\nHost: "+ HostPort +"\r\n\r\n")
+	if _, err = srvconn.Write(payload); err != nil {
+		debug.Println("proxy CONNECT %s: %v", HostPort, err)
+		return
+	}
+	for err == nil {
+		_, err = srvconn.Read(buf)
+		if bytes.Equal(buf[0:5], []byte("HTTP/")) {
+			break
+		}
+	}
+	if err != nil { // timeout: EOF
+		return
+	}
+
+	// in case of some proxy returns 200 immediately without really solving the connection,
+	// transfer some data, it should get a real response.
+	// Tls `application data`, text command HEAD (http/ftp/smtp/pop3/imap/git), or timeout
+	var n int
+	if url.Port == "443" {
+		if _, err = srvconn.Write([]byte("\x17\x03\x01\x00\x01\x00")); err != nil {
+			return
+		}
+		for err == nil {
+			n, err = srvconn.Read(buf)
+			if n > 0 { // Tls alert: \x15
+				return
+			}
+		}
+	} else {
+		if _, err = srvconn.Write([]byte("HEAD / HTTP/1.1\r\nHost: "+ HostPort +"\r\n\r\n")); err != nil {
+			return
+		}
+		for err == nil {
+			n, err = srvconn.Read(buf)
+			if n > 0 { // http: 200, 301; ftp: 200;
+				return
+			}
+		}
+	}
+
+	// proxy fails, no response, timeout
+	return
+}
+
 func (parent *ParentWithLatency) updateLatency(wg *sync.WaitGroup) {
 	defer wg.Done()
 	proxy := parent.ParentProxy
@@ -258,9 +322,16 @@ func (parent *ParentWithLatency) updateLatency(wg *sync.WaitGroup) {
 	var total time.Duration
 	for i := 0; i < N; i++ {
 		now := time.Now()
-		cn, err := net.DialTimeout("tcp", ipPort, dialTimeout)
+		var cn net.Conn
+		if len(config.ProxyTestTarget) == 0 {
+			// latency to proxy
+			cn, err = net.DialTimeout("tcp", ipPort, dialTimeout)
+		} else {
+			// latency via proxy
+			cn, err = parent.solveParentConnect(config.ProxyTestTarget)
+		}
 		if err != nil {
-			debug.Println("latency update dial:", err)
+			debug.Println("proxy latency update:", err)
 			total += time.Minute // 1 minute as penalty
 			continue
 		}
@@ -283,7 +354,7 @@ func (pp *latencyParentPool) updateLatency() {
 	var wg sync.WaitGroup
 	wg.Add(len(cp.parent))
 	for i, _ := range cp.parent {
-		cp.parent[i].updateLatency(&wg)
+		go cp.parent[i].updateLatency(&wg)
 	}
 	wg.Wait()
 

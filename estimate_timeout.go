@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -83,18 +82,10 @@ onErr:
 }
 
 func runEstimateTimeout() {
-	const estimateReq = "GET / HTTP/1.1\r\n" +
-		"Host: %s\r\n" +
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0) Firefox/66.0 AppleWebKit/537.36 Chrome/72.0 Safari/537.36 Edge/18.0\r\n" +
-		"Accept: */*\r\n" +
-		"Accept-Language: en-us,en;q=0.5\r\n" +
-		"Accept-Encoding: gzip, deflate\r\n" +
-		"Connection: close\r\n\r\n"
-
 	readTimeout = config.ReadTimeout
 	dialTimeout = config.DialTimeout
 
-	payload := []byte(fmt.Sprintf(estimateReq, config.EstimateTarget))
+	payload := []byte("HEAD / HTTP/1.1\r\nHost: "+ config.EstimateTarget +"\r\n\r\n")
 
 	for {
 		estimateTimeout(config.EstimateTarget, payload)

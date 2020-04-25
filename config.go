@@ -73,6 +73,7 @@ type Config struct {
 	PrintVer        bool
 	EstimateTimeout bool   // Whether to run estimateTimeout().
 	EstimateTarget  string // Timeout estimate target site.
+	ProxyTestTarget string // Test target on proxy
 
 	// not config option
 	saveReqLine bool // for http and cow parent, should save request line from client
@@ -589,6 +590,10 @@ func (p configParser) ParseDetectSSLErr(val string) {
 
 func (p configParser) ParseEstimateTarget(val string) {
 	config.EstimateTarget = val
+}
+
+func (p configParser) ParseProxyTestTarget(val string) {
+	config.ProxyTestTarget = val
 }
 
 // overrideConfig should contain options from command line to override options
