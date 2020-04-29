@@ -31,6 +31,8 @@ type ParentPool interface {
 	// Select a proxy from the pool and connect. May try several proxies until
 	// one that succees, return nil and error if all parent proxies fail.
 	connect(*URL) (net.Conn, error)
+	// feedback on the fly
+	updateParentQuality(hostPort string)
 }
 
 // Init parentProxy to be backup pool. So config parsing have a pool to add
@@ -104,6 +106,19 @@ func (pp *backupParentPool) connect(url *URL) (srvconn net.Conn, err error) {
 	return connectInOrder(url, pp.parent, 0)
 }
 
+func (pp *backupParentPool) updateParentQuality(hostPort string) {
+	Parents := pp.parent
+	nproxy := len(Parents)
+	for i := 0; i < nproxy; i++ {
+		parent := &Parents[i]
+		if parent.getServer() == hostPort {
+			parent.updateQuality()
+			break
+		}
+	}
+	return
+}
+
 // Hash load balance strategy:
 // Each host will use a proxy based on a hash value.
 type hashParentPool struct {
@@ -114,6 +129,23 @@ func (pp *hashParentPool) connect(url *URL) (srvconn net.Conn, err error) {
 	start := int(crc32.ChecksumIEEE([]byte(url.Host)) % uint32(len(pp.parent)))
 	debug.Printf("hash host %s try %d parent first", url.Host, start)
 	return connectInOrder(url, pp.parent, start)
+}
+
+func (pp *hashParentPool) updateParentQuality(hostPort string) {
+	Parents := pp.parent
+	nproxy := len(Parents)
+	for i := 0; i < nproxy; i++ {
+		parent := &Parents[i]
+		if parent.getServer() == hostPort {
+			parent.updateQuality()
+			break
+		}
+	}
+	return
+}
+
+func (parent *ParentWithFail) updateQuality() {
+	parent.fail++
 }
 
 func (parent *ParentWithFail) connect(url *URL) (srvconn net.Conn, err error) {
@@ -223,7 +255,7 @@ func (pp *latencyParentPool) connect(url *URL) (srvconn net.Conn, err error) {
 			continue
 		}
 		if srvconn, err = parent.connect(url); err == nil {
-			debug.Println("lowest latency proxy", parent.getServer())
+			debug.Println("lowest latency proxy", parent.getServer(), parent.latency)
 			return
 		}
 		parent.latency = latencyMax
@@ -235,6 +267,27 @@ func (pp *latencyParentPool) connect(url *URL) (srvconn net.Conn, err error) {
 		}
 	}
 	return nil, err
+}
+
+func (pp *latencyParentPool) updateParentQuality(hostPort string) {
+	Parents := pp.parent
+	nproxy := len(Parents)
+	for i := 0; i < nproxy; i++ {
+		parent := &Parents[i]
+		if parent.getServer() == hostPort {
+			parent.updateQuality()
+			sort.Stable(pp)
+			break
+		}
+	}
+	return
+}
+
+func (parent *ParentWithLatency) updateQuality() {
+	latencyMutex.Lock()
+	parent.latency *= 2
+	latencyMutex.Unlock()
+	debug.Println("doubled latency", parent.getServer(), parent.latency)
 }
 
 // test connect quality to + on parent proxy
@@ -255,6 +308,9 @@ func (parent *ParentWithLatency) solveParentConnect(HostPort string) (srvconn ne
 
 	buf := connectBuf.Get()
 	defer connectBuf.Put(buf)
+	setConnReadTimeout(srvconn, readTimeout, "solveParentConnect")
+	defer unsetConnReadTimeout(srvconn, "solveParentConnect")
+
 	payload := []byte("CONNECT "+ HostPort +" HTTP/1.1\r\nHost: "+ HostPort +"\r\n\r\n")
 	if _, err = srvconn.Write(payload); err != nil {
 		debug.Println("proxy CONNECT %s: %v", HostPort, err)
@@ -360,7 +416,7 @@ func (pp *latencyParentPool) updateLatency() {
 
 	// Sort according to latency.
 	sort.Stable(&cp)
-	debug.Println("latency lowest proxy", cp.parent[0].getServer())
+	debug.Println("latency lowest proxy", cp.parent[0].getServer(), cp.parent[0].latency)
 
 	// Update parent slice.
 	latencyMutex.Lock()

@@ -984,10 +984,9 @@ func (sv *serverConn) willTryProxy() bool {
 
 // TCP connection established, could be TLS handshake or http request
 func (sv *serverConn) isAttackableState(r *Request) bool {
-	return svCONNECTed < sv.state &&
+	return sv.willTryProxy() && svCONNECTed < sv.state &&
 			((r.isConnect && sv.state <= svSendRecvClientHello) ||
-				(!r.isConnect && sv.state <= svSendRecvRequest)) &&
-			sv.willTryProxy()
+				(!r.isConnect && sv.state <= svSendRecvRequest))
 }
 
 func setConnReadTimeout(cn net.Conn, d time.Duration, msg string) {
@@ -1050,9 +1049,7 @@ var connectBuf = leakybuf.NewLeakyBuf(512, connectBufSize)
 func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 	debug.Printf("copyServer2Client: srv(%s)->cli(%s)\n", r.URL.HostPort, c.RemoteAddr())
 	buf := connectBuf.Get()
-	defer func() {
-		connectBuf.Put(buf)
-	}()
+	defer connectBuf.Put(buf)
 
 	/*
 		// force retry for debugging
@@ -1080,14 +1077,22 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 			if sv.isAttackableState(r) && maybeBlocked(err) {
 				// not initiated by client
 				siteStat.TempBlocked(r.URL)
-				info.Printf("srv->cli blocked site %s detected, err: %v retry\n", r.URL.HostPort, err)
+				info.Printf("srv->cli blocked site %s detected, err: %v -> retry\n", r.URL.HostPort, err)
 				return RetryError{err}
 			}
-			// Expected error besides EOF
-			// this is to make blocking read return.
-			// debug.Printf("copyServer2Client read data: %v\n", err)
+			// proxy refused or failed, unreliable, downgrade it
+			if !sv.isDirect() && err == io.EOF {
+				proxyAddr := sv.Conn.RemoteAddr()
+				info.Printf("Proxy refused/failed: %s via %s -> downgrade\n", r.URL.HostPort, proxyAddr)
+				parentProxy.updateParentQuality(proxyAddr.String())
+			} else {
+				// Expected error besides EOF
+				// this is to make blocking read return.
+				debug.Printf("copyServer2Client read data: %v\n", err)
+			}
 			return
 		}
+
 		// when retry CONNECT before TLS HELLO, just skip forward the response to client, and then deliver TLS HELLO
 		if r.isRetry() && sv.state < svCONNECTed {
 			debug.Printf("Skip remote response for CONNECT: srv(%s)->cli(%s)\n", r.URL.HostPort, c.RemoteAddr())
@@ -1201,9 +1206,7 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 		start = time.Now()
 	}
 	buf := connectBuf.Get()
-	defer func() {
-		connectBuf.Put(buf)
-	}()
+	defer connectBuf.Put(buf)
 	for {
 		// debug.Println("cli->srv")
 		if sv.isAttackableState(r) {
@@ -1300,7 +1303,7 @@ func (sv *serverConn) doConnect(r *Request, c *clientConn) (err error) {
 	if isErrRetry(err) {
 		srvStopped.notify()
 		<-done
-		// debug.Printf("doConnect: cli(%s)->srv(%s) stopped\n", c.RemoteAddr(), r.URL.HostPort)
+		debug.Printf("doConnect: cli(%s)->srv(%s) stopped\n", c.RemoteAddr(), r.URL.HostPort)
 	} else {
 		// close client connection to force read from client in copyClient2Server return
 		c.Conn.Close()
