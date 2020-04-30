@@ -331,24 +331,18 @@ func (parent *ParentWithLatency) solveParentConnect(HostPort string) (srvconn ne
 	// Tls `application data`, text command HEAD (http/ftp/smtp/pop3/imap/git), or timeout
 	var n int
 	if url.Port == "443" {
-		if _, err = srvconn.Write([]byte("\x17\x03\x01\x00\x01\x00")); err != nil {
-			return
-		}
-		for err == nil {
-			n, err = srvconn.Read(buf)
-			if n > 0 { // Tls alert: \x15
-				return
-			}
-		}
+		_, err = srvconn.Write([]byte("\x17\x03\x01\x00\x01\x00"))
 	} else {
-		if _, err = srvconn.Write([]byte("HEAD / HTTP/1.1\r\nHost: "+ HostPort +"\r\n\r\n")); err != nil {
+		_, err = srvconn.Write([]byte("HEAD / HTTP/1.1\r\nHost: "+ HostPort +"\r\n\r\n"))
+	}
+	if err != nil {
+		return
+	}
+	for err == nil {
+		n, err = srvconn.Read(buf)
+		// Tls alert: \x15; http: 200, 301; ftp: 200;
+		if n > 0 {
 			return
-		}
-		for err == nil {
-			n, err = srvconn.Read(buf)
-			if n > 0 { // http: 200, 301; ftp: 200;
-				return
-			}
 		}
 	}
 
