@@ -313,7 +313,7 @@ func (parent *ParentWithLatency) solveParentConnect(HostPort string) (srvconn ne
 
 	payload := []byte("CONNECT "+ HostPort +" HTTP/1.1\r\nHost: "+ HostPort +"\r\n\r\n")
 	if _, err = srvconn.Write(payload); err != nil {
-		debug.Println("proxy CONNECT %s: %v", HostPort, err)
+		debug.Println("proxy CONNECT ", HostPort, ": ", err)
 		return
 	}
 	for err == nil {
