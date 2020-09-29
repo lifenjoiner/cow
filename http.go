@@ -111,6 +111,10 @@ func (r *Request) isRetry() bool {
 	return r.tryCnt > 1
 }
 
+func (r *Request) tryAntiDPI() bool {
+	return r.tryCnt == 2 && config.TryAntiDPI
+}
+
 func (r *Request) tryOnce() {
 	r.tryCnt++
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -839,7 +840,7 @@ func (c *clientConn) connect(r *Request, siteInfo *VisitCnt) (srvconn net.Conn, 
 		errMsg = genErrMsg(r, nil, "Parent proxy connection failed, always use parent proxy.")
 		goto fail
 	}
-	if siteInfo.AsBlocked() && !parentProxy.empty() {
+	if siteInfo.AsBlocked() && !r.tryAntiDPI() && !parentProxy.empty() {
 		// In case of connection error to socks server, fallback to direct connection
 		if srvconn, err = parentProxy.connect(r.URL); err == nil {
 			if dbgRq {
@@ -984,7 +985,7 @@ func (sv *serverConn) willTryProxy() bool {
 
 // TCP connection established, could be TLS handshake or http request
 func (sv *serverConn) isAttackableState(r *Request) bool {
-	return sv.willTryProxy() && svCONNECTed < sv.state &&
+	return sv.willTryProxy() &&
 			((r.isConnect && sv.state <= svSendRecvClientHello) ||
 				(!r.isConnect && sv.state <= svSendRecvRequest))
 }
@@ -1168,7 +1169,8 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 
 	// Just forward the rawBody/incoming data
 	// if isTLSHello, should wait until server is ready
-	if r.isRetry() && len(r.rawBody()) > 0 {
+	n = len(r.rawBody())
+	if r.isRetry() && n > 0 {
 		// debug.Printf("has data after connecting: %s\n", r.URL.HostPort)
 		// block until CONNECT returns OK or fails again
 		for r.isConnect && sv.state < svCONNECTed && sv.bufRd != nil {
@@ -1177,9 +1179,27 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 		}
 		if debug {
 			debug.Printf("cli(%s)->srv(%s) retry request %d bytes of buffered body\n",
-				c.RemoteAddr(), r.URL.HostPort, len(r.rawBody()))
+				c.RemoteAddr(), r.URL.HostPort, n)
 		}
-		if _, err = sv.Write(r.rawBody()); err != nil {
+		remainStart := 0
+		if r.isConnect && r.tryAntiDPI() && sv.isDirect() {
+			rand.Seed(time.Now().UnixNano())
+			// Make the 1st part doesn't contain sni
+			remainStart = n / 8
+			remainStart += rand.Intn(remainStart)
+			if dbgRq {
+				dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, remainStart)
+			}
+			if _, err = sv.Write(r.rawBody()[0:remainStart]); err != nil {
+				debug.Println("cli->srv send to server error")
+				return
+			}
+			time.Sleep(time.Millisecond) // <--
+			if dbgRq {
+				dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, n - remainStart)
+			}
+		}
+		if _, err = sv.Write(r.rawBody()[remainStart:]); err != nil {
 			debug.Println("cli->srv send to server error")
 			return
 		}
@@ -1358,7 +1378,59 @@ func (sv *serverConn) sendRequestHeader(r *Request, c *clientConn) (err error) {
 			debug.Printf("request to server\n%s", r.rawRequest())
 		}
 	*/
-	if _, err = sv.Write(r.rawRequest()); err != nil {
+	remainStart := 0
+	if r.isRetry() && sv.isDirect() && r.tryAntiDPI() {
+		rawRequest := r.rawRequest()
+		i := bytes.IndexByte(rawRequest, ' ')
+		x := bytes.Index(rawRequest, []byte("://"))
+		if i > 0 && x > i + 1 {
+			x = bytes.IndexByte(rawRequest[i+1:], ' ')
+			if x < 0 {
+				x = bytes.IndexByte(rawRequest[i+1:], '\r')
+			}
+			if x > 0 {
+				i += (1 + x) / 2
+			} else {
+				i = 0
+			}
+		} else {
+			i = 0
+		}
+		if i > 0 {
+			if dbgRq {
+				dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, i)
+			}
+			if _, err = sv.Write(rawRequest[0:i]); err != nil {
+				return c.handleServerWriteError(r, sv, err, "send request to server")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		j := bytes.Index(bytes.ToLower(rawRequest), []byte("\nhost:"))
+		if j > i {
+			x = bytes.IndexByte(rawRequest[j+6:], '\r')
+			if x > 0 {
+				j += 6 + x / 2
+			} else {
+				j = i
+			}
+		} else {
+			j = i
+		}
+		if j > i {
+			if dbgRq {
+				dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, j - i)
+			}
+			if _, err = sv.Write(rawRequest[i:j]); err != nil {
+				return c.handleServerWriteError(r, sv, err, "send request to server")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if dbgRq {
+			dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, len(rawRequest) - j)
+		}
+		remainStart = j
+	}
+	if _, err = sv.Write(r.rawRequest()[remainStart:]); err != nil {
 		err = c.handleServerWriteError(r, sv, err, "send request to server")
 	}
 	return

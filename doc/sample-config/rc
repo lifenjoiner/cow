@@ -156,6 +156,11 @@ proxyTestTarget = www.google.com:443
 # 可能将可直连网站误判为被墙网站，当 GFW 进行 SSL 中间人攻击时可以考虑使用
 #detectSSLErr = false
 
+# 对抗 DPI 的一种尝试，分割传送请求包 GET, CONNECT ...
+# 对初级 DPI 有效，对 IP 阻断无效。增加 DPI 成本。
+# 重试时尝试一次
+tryAntiDPI = true
+
 # 修改 stat/blocked/direct 文件路径，如不指定，默认在配置文件所在目录下
 # 执行 cow 的用户需要有对 stat 文件所在目录的写权限才能更新 stat 文件
 #statFile = <dir to rc file>/stat

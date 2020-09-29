@@ -180,6 +180,11 @@ proxyTestTarget = www.google.com:443
 # Only consider this option when GFW is making middle man attack.
 #detectSSLErr = false
 
+# Try Anti-DPI, split the 1st request packet of GET, CONNECT ...
+# Maybe effective to simple DPI. Increase the complexity!
+# Try once when retry
+tryAntiDPI = true
+
 # Change the stat/blocked/direct file position, defaults to files under directory
 # containing rc file.
 # The cow user must write access to directory containing the stat file in order
