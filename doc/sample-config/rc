@@ -148,8 +148,8 @@ proxyTestTarget = www.google.com:443
 
 # 创建连接超时（语法跟 authTimeout 相同）
 #dialTimeout = 5s
-# 从服务器读超时
-#readTimeout = 5s
+# 从服务器读超时，请求资源前
+#handshakeTimeout = 5s
 
 # 基于 client 是否很快关闭连接来检测 SSL 错误，只对 Chrome 有效
 # （Chrome 遇到 SSL 错误会直接关闭连接，而不是让用户选择是否继续）

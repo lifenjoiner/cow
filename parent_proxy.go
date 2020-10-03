@@ -308,7 +308,7 @@ func (parent *ParentWithLatency) solveParentConnect(HostPort string) (srvconn ne
 
 	buf := connectBuf.Get()
 	defer connectBuf.Put(buf)
-	setConnReadTimeout(srvconn, readTimeout, "solveParentConnect")
+	setConnReadTimeout(srvconn, handshakeTimeout, "solveParentConnect")
 	defer unsetConnReadTimeout(srvconn, "solveParentConnect")
 
 	payload := []byte("CONNECT "+ HostPort +" HTTP/1.1\r\nHost: "+ HostPort +"\r\n\r\n")

@@ -171,8 +171,8 @@ proxyTestTarget = www.google.com:443
 
 # DNS and connection timeout (same syntax with authTimeout).
 #dialTimeout = 5s
-# Read from server timeout.
-#readTimeout = 5s
+# Read from server timeout, before reqesting resources.
+#handshakeTimeout = 5s
 
 # Detect SSL error based on client close connection speed, only effective for
 # Chrome.

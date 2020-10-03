@@ -56,8 +56,8 @@ type Config struct {
 	AuthTimeout    time.Duration
 
 	// advanced options
-	DialTimeout time.Duration
-	ReadTimeout time.Duration
+	DialTimeout         time.Duration
+	HandshakeTimeout    time.Duration
 
 	Core         int
 	DetectSSLErr bool
@@ -98,7 +98,7 @@ func initConfig(rcFile string) {
 
 	config.AuthTimeout = 2 * time.Hour
 	config.DialTimeout = defaultDialTimeout
-	config.ReadTimeout = defaultReadTimeout
+	config.HandshakeTimeout = defaultReadTimeout
 
 	config.TunnelAllowedPort = make(map[string]bool)
 	for _, port := range defaultTunnelAllowedPort {
@@ -577,8 +577,8 @@ func (p configParser) ParseHttpErrorCode(val string) {
 	config.HttpErrorCode = parseInt(val, "httpErrorCode")
 }
 
-func (p configParser) ParseReadTimeout(val string) {
-	config.ReadTimeout = parseDuration(val, "readTimeout")
+func (p configParser) ParseHandshakeTimeout(val string) {
+	config.HandshakeTimeout = parseDuration(val, "handshakeTimeout")
 }
 
 func (p configParser) ParseDialTimeout(val string) {

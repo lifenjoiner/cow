@@ -15,7 +15,7 @@ const defaultReadTimeout = 5 * time.Second
 const maxTimeout = 15 * time.Second
 
 var dialTimeout = defaultDialTimeout
-var readTimeout = defaultReadTimeout
+var handshakeTimeout = defaultReadTimeout
 
 // estimateTimeout tries to fetch a url and adjust timeout value according to
 // how much time is spent on connect and fetch. This avoids incorrectly
@@ -68,21 +68,20 @@ func estimateTimeout(host string, payload []byte) {
 	if est > maxTimeout {
 		est = maxTimeout
 	}
-	if est > time.Duration(config.ReadTimeout) {
-		readTimeout = est
-		debug.Println("new read timeout:", readTimeout)
-	} else if readTimeout != config.ReadTimeout {
-		readTimeout = config.ReadTimeout
-		debug.Println("new read timeout:", readTimeout)
+	if est > time.Duration(config.HandshakeTimeout) {
+		handshakeTimeout = est
+	} else if handshakeTimeout != config.HandshakeTimeout {
+		handshakeTimeout = config.HandshakeTimeout
 	}
+	debug.Println("new read timeout:", handshakeTimeout)
 	return
 onErr:
 	dialTimeout += 2 * time.Second
-	readTimeout += 2 * time.Second
+	handshakeTimeout += 2 * time.Second
 }
 
 func runEstimateTimeout() {
-	readTimeout = config.ReadTimeout
+	handshakeTimeout = config.HandshakeTimeout
 	dialTimeout = config.DialTimeout
 
 	payload := []byte("HEAD / HTTP/1.1\r\nHost: "+ config.EstimateTarget +"\r\n\r\n")
@@ -95,6 +94,6 @@ func runEstimateTimeout() {
 
 // Guess network status based on doing HTTP request to estimateSite
 func networkBad() bool {
-	return (readTimeout != config.ReadTimeout) ||
+	return (handshakeTimeout != config.HandshakeTimeout) ||
 		(dialTimeout != config.DialTimeout)
 }

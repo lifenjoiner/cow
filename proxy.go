@@ -992,23 +992,27 @@ func (sv *serverConn) isAttackableState(r *Request) bool {
 
 func setConnReadTimeout(cn net.Conn, d time.Duration, msg string) {
 	if err := cn.SetReadDeadline(time.Now().Add(d)); err != nil {
-		errl.Println("set readtimeout:", msg, err)
+		errl.Println("set read timeout:", msg, err)
 	}
 }
 
 func unsetConnReadTimeout(cn net.Conn, msg string) {
 	if err := cn.SetReadDeadline(zeroTime); err != nil {
 		// It's possible that conn has been closed, so use debug log.
-		debug.Println("unset readtimeout:", msg, err)
+		debug.Println("unset read timeout:", msg, err)
 	}
 }
 
 func (sv *serverConn) setReadTimeout(msg string) {
-	to := readTimeout
-	if sv.siteInfo.OnceBlocked() && to > defaultReadTimeout {
-		to = minReadTimeout
-	} else if sv.siteInfo.AsDirect() {
-		to = maxTimeout
+	to := handshakeTimeout
+	if sv.siteInfo.OnceBlocked() {
+		if sv.siteInfo.AlwaysDirect() {
+			if to < defaultReadTimeout {
+				to = maxTimeout
+			}
+		} else if to >= defaultReadTimeout {
+			to = minReadTimeout
+		}
 	}
 	setConnReadTimeout(sv.Conn, to, msg)
 }
