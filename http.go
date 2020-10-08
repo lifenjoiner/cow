@@ -689,9 +689,7 @@ func (rp *Response) hasBody(method string) bool {
 func parseResponse(sv *serverConn, r *Request, rp *Response) (err error) {
 	var s []byte
 	reader := sv.bufRd
-	if sv.isAttackableState(r) {
-		sv.setReadTimeout("parseResponse")
-	}
+	sv.setReadTimeout(r, "parseResponse")
 	if s, err = reader.ReadSlice('\n'); err != nil {
 		// err maybe timeout caused by explicity setting deadline, EOF, or
 		// reset caused by GFW.
@@ -702,9 +700,7 @@ func parseResponse(sv *serverConn, r *Request, rp *Response) (err error) {
 		// is caused by GFW.
 		return err
 	}
-	if sv.isAttackableState(r) {
-		sv.unsetReadTimeout("parseResponse")
-	}
+	sv.unsetReadTimeout("parseResponse")
 	// debug.Printf("Response line %s", s)
 
 	// response status line parsing

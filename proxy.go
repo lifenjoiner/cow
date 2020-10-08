@@ -767,20 +767,18 @@ func (c *clientConn) getServerConn(r *Request) (*serverConn, error) {
 func connectDirect2(url *URL, siteInfo *VisitCnt, recursive bool) (net.Conn, error) {
 	var c net.Conn
 	var err error
+	to := dialTimeout
 	if siteInfo.AlwaysDirect() {
-		c, err = net.Dial("tcp", url.HostPort)
-	} else {
-		to := dialTimeout
-		if siteInfo.OnceBlocked() && to >= defaultDialTimeout {
-			// If once blocked, decrease timeout to switch to parent proxy faster.
-			to = minDialTimeout
-		} else if siteInfo.AsDirect() {
-			// If usually can be accessed directly, increase timeout to avoid
-			// problems when network condition is bad.
-			to = maxTimeout
-		}
-		c, err = net.DialTimeout("tcp", url.HostPort, to)
+		to = 0
+	} else if siteInfo.OnceBlocked() && to >= defaultDialTimeout {
+		// If once blocked, decrease timeout to switch to parent proxy faster.
+		to = minDialTimeout
+	} else if siteInfo.AsDirect() {
+		// If usually can be accessed directly, increase timeout to avoid
+		// problems when network condition is bad.
+		to = maxTimeout
 	}
+	c, err = net.DialTimeout("tcp", url.HostPort, to)
 	if err != nil {
 		debug.Printf("error direct connect to: %s %v\n", url.HostPort, err)
 		if isErrTooManyOpenFd(err) && !recursive {
@@ -1003,16 +1001,20 @@ func unsetConnReadTimeout(cn net.Conn, msg string) {
 	}
 }
 
-func (sv *serverConn) setReadTimeout(msg string) {
+func (sv *serverConn) setReadTimeout(r *Request, msg string) {
 	to := handshakeTimeout
-	if sv.siteInfo.OnceBlocked() {
-		if sv.siteInfo.AlwaysDirect() {
-			if to < defaultReadTimeout {
-				to = maxTimeout
+	if sv.isAttackableState(r) {
+		if sv.siteInfo.OnceBlocked() {
+			if sv.siteInfo.AlwaysDirect() {
+				if to < defaultReadTimeout {
+					to = maxTimeout
+				}
+			} else if to >= defaultReadTimeout {
+				to = minReadTimeout
 			}
-		} else if to >= defaultReadTimeout {
-			to = minReadTimeout
 		}
+	} else {
+		to = 150 * time.Second
 	}
 	setConnReadTimeout(sv.Conn, to, msg)
 }
@@ -1066,16 +1068,9 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 
 	total := 0
 	const directThreshold = 8192
-	readTimeoutSet := false
 	for {
 		// debug.Println("srv->cli")
-		if sv.isAttackableState(r) {
-			sv.setReadTimeout("srv->cli")
-			readTimeoutSet = true
-		} else if readTimeoutSet {
-			sv.unsetReadTimeout("srv->cli")
-			readTimeoutSet = false
-		}
+		sv.setReadTimeout(r, "srv->cli")
 		var n int
 		if n, err = sv.Read(buf); err != nil {
 			// also in case of only 1 server TCP RST which is abnormal
@@ -1097,6 +1092,7 @@ func copyServer2Client(sv *serverConn, c *clientConn, r *Request) (err error) {
 			}
 			return
 		}
+		sv.unsetReadTimeout("srv->cli")
 
 		// when retry CONNECT before TLS HELLO, just skip forward the response to client, and then deliver TLS HELLO
 		if r.isRetry() && sv.state < svCONNECTed {
