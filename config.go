@@ -62,6 +62,7 @@ type Config struct {
 	Core         int
 	DetectSSLErr bool
 	TryAntiDPI   bool // split the 1st packet (GET/CONNECT) when retry
+	ChooseGoodIP bool
 
 	HttpErrorCode int
 
@@ -599,6 +600,10 @@ func (p configParser) ParseProxyTestTarget(val string) {
 
 func (p configParser) ParseTryAntiDPI(val string) {
 	config.TryAntiDPI = parseBool(val, "tryAntiDPI")
+}
+
+func (p configParser) ParseChooseGoodIP(val string) {
+	config.ChooseGoodIP = parseBool(val, "chooseGoodIP")
 }
 
 // overrideConfig should contain options from command line to override options

@@ -185,6 +185,10 @@ proxyTestTarget = www.google.com:443
 # Try once when retry
 tryAntiDPI = true
 
+# Try to filter out blocked IPs, Dial all IPs and take the first available one
+# The count of connect will rise
+chooseGoodIP = true
+
 # Change the stat/blocked/direct file position, defaults to files under directory
 # containing rc file.
 # The cow user must write access to directory containing the stat file in order

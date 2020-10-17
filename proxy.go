@@ -764,6 +764,58 @@ func (c *clientConn) getServerConn(r *Request) (*serverConn, error) {
 	return c.createServerConn(r, siteInfo)
 }
 
+type GoodConn struct {
+	sync.RWMutex
+	c net.Conn
+	err error
+	n int
+}
+
+// Get the non-blocked IP
+func getOneGoodConn(url *URL, timeout time.Duration) (net.Conn, error) {
+	var conn net.Conn
+	IPs, err := net.LookupHost(url.Host)
+	if err != nil {
+		return nil, err
+	}
+	var goodConn GoodConn
+	goodConn.n = len(IPs)
+	for _, IP := range IPs {
+		if IP == "0.0.0.0" || IP == "::" { // doesnt return `lookup` error
+			IP = url.Host
+		}
+		go func(ip string) {
+			c, err := net.DialTimeout("tcp", net.JoinHostPort(ip, url.Port), timeout)
+			goodConn.Lock()
+			if goodConn.c == nil {
+				if err == nil { // bad ip returns fast too
+					goodConn.c = c
+				} else if goodConn.n == 1 { // return the last err (timeout)
+					goodConn.err = err
+				}
+			} else if err == nil {
+				defer c.Close()
+			}
+			goodConn.n--
+			goodConn.Unlock()
+		}(IP)
+	}
+	for {
+		goodConn.Lock()
+		if goodConn.c != nil {
+			conn = goodConn.c
+		} else if goodConn.n <= 0 {
+		    err = goodConn.err
+		}
+		goodConn.Unlock()
+		if conn != nil || err != nil {
+			break
+		}
+		time.Sleep(1)
+	}
+	return conn, err
+}
+
 func connectDirect2(url *URL, siteInfo *VisitCnt, recursive bool) (net.Conn, error) {
 	var c net.Conn
 	var err error
@@ -778,7 +830,11 @@ func connectDirect2(url *URL, siteInfo *VisitCnt, recursive bool) (net.Conn, err
 		// problems when network condition is bad.
 		to = maxTimeout
 	}
-	c, err = net.DialTimeout("tcp", url.HostPort, to)
+	if config.ChooseGoodIP {
+		c, err = getOneGoodConn(url, to)
+	} else {
+		c, err = net.DialTimeout("tcp", url.HostPort, to)
+	}
 	if err != nil {
 		debug.Printf("error direct connect to: %s %v\n", url.HostPort, err)
 		if isErrTooManyOpenFd(err) && !recursive {

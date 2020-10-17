@@ -161,6 +161,10 @@ proxyTestTarget = www.google.com:443
 # 重试时尝试一次
 tryAntiDPI = true
 
+# 过滤 IP 封锁的一种尝试，Dial 所有 IP 并使用第一个正常返回的连接
+# 总连接数会增加
+chooseGoodIP = true
+
 # 修改 stat/blocked/direct 文件路径，如不指定，默认在配置文件所在目录下
 # 执行 cow 的用户需要有对 stat 文件所在目录的写权限才能更新 stat 文件
 #statFile = <dir to rc file>/stat
