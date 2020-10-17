@@ -39,7 +39,7 @@ func isErrConnReset(err error) bool {
 func isDNSError(err error) bool {
 	// DNS error are not of type DNSError on Windows
 	errMsg := err.Error()
-	return strings.Contains(errMsg, " lookup ")
+	return strings.Contains(errMsg, "lookup ")
 }
 
 func isErrOpWrite(err error) bool {
