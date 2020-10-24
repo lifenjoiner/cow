@@ -816,6 +816,17 @@ func getOneGoodConn(url *URL, timeout time.Duration) (net.Conn, error) {
 	return conn, err
 }
 
+func connectDirectEx(url *URL, timeout time.Duration) (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	if config.ChooseGoodIP {
+		conn, err = getOneGoodConn(url, timeout)
+	} else {
+		conn, err = net.DialTimeout("tcp", url.HostPort, timeout)
+	}
+	return conn, err
+}
+
 func connectDirect2(url *URL, siteInfo *VisitCnt, recursive bool) (net.Conn, error) {
 	var c net.Conn
 	var err error
@@ -830,11 +841,9 @@ func connectDirect2(url *URL, siteInfo *VisitCnt, recursive bool) (net.Conn, err
 		// problems when network condition is bad.
 		to = maxTimeout
 	}
-	if config.ChooseGoodIP {
-		c, err = getOneGoodConn(url, to)
-	} else {
-		c, err = net.DialTimeout("tcp", url.HostPort, to)
-	}
+
+	c, err = connectDirectEx(url, to)
+
 	if err != nil {
 		debug.Printf("error direct connect to: %s %v\n", url.HostPort, err)
 		if isErrTooManyOpenFd(err) && !recursive {

@@ -360,25 +360,26 @@ func (parent *ParentWithLatency) updateLatency(wg *sync.WaitGroup) {
 		panic("split host port parent server error" + err.Error())
 	}
 
-	// Resolve host name first, so latency does not include resolve time.
-	ip, err := net.LookupHost(host)
+	// Cache resolving host name first, so latency does not include resolve time.
+	_, err = net.LookupHost(host)
 	if err != nil {
 		parent.latency = latencyMax
 		return
 	}
-	ipPort := net.JoinHostPort(ip[0], port)
+
+	srvurl := &URL{server, host, port, "", ""}
 
 	const N = 3
 	var total time.Duration
 	for i := 0; i < N; i++ {
 		now := time.Now()
-		var cn net.Conn
+		var conn net.Conn
 		if len(config.ProxyTestTarget) == 0 {
-			// latency to proxy
-			cn, err = net.DialTimeout("tcp", ipPort, dialTimeout)
+			// latency to proxy (tcp)
+			conn, err = connectDirectEx(srvurl, dialTimeout)
 		} else {
 			// latency via proxy
-			cn, err = parent.solveParentConnect(config.ProxyTestTarget)
+			conn, err = parent.solveParentConnect(config.ProxyTestTarget)
 		}
 		if err != nil {
 			debug.Println("proxy latency update:", err)
@@ -386,7 +387,7 @@ func (parent *ParentWithLatency) updateLatency(wg *sync.WaitGroup) {
 			continue
 		}
 		total += time.Now().Sub(now)
-		cn.Close()
+		conn.Close()
 
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -472,7 +473,9 @@ func (hp *httpParent) initAuth(userPasswd string) {
 }
 
 func (hp *httpParent) connect(url *URL) (net.Conn, error) {
-	c, err := net.Dial("tcp", hp.server)
+	srvurl := &URL{}
+	srvurl.ParseHostPort(hp.server)
+	c, err := connectDirectEx(srvurl, dialTimeout)
 	if err != nil {
 		errl.Printf("can't connect to http parent %s for %s: %v\n",
 			hp.server, url.HostPort, err)
@@ -579,7 +582,9 @@ func (cp *cowParent) genConfig() string {
 }
 
 func (cp *cowParent) connect(url *URL) (net.Conn, error) {
-	c, err := net.Dial("tcp", cp.server)
+	srvurl := &URL{}
+	srvurl.ParseHostPort(cp.server)
+	c, err := connectDirectEx(srvurl, dialTimeout)
 	if err != nil {
 		errl.Printf("can't connect to cow parent %s for %s: %v\n",
 			cp.server, url.HostPort, err)
@@ -640,7 +645,9 @@ func (sp *socksParent) genConfig() string {
 }
 
 func (sp *socksParent) connect(url *URL) (net.Conn, error) {
-	c, err := net.Dial("tcp", sp.server)
+	srvurl := &URL{}
+	srvurl.ParseHostPort(sp.server)
+	c, err := connectDirectEx(srvurl, dialTimeout)
 	if err != nil {
 		errl.Printf("can't connect to socks parent %s for %s: %v\n",
 			sp.server, url.HostPort, err)
