@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -1234,7 +1233,8 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 
 	// Just forward the rawBody/incoming data
 	// if isTLSHello, should wait until server is ready
-	n = len(r.rawBody())
+	rawBody := r.rawBody()
+	n = len(rawBody)
 	if r.isRetry() && n > 0 {
 		// debug.Printf("has data after connecting: %s\n", r.URL.HostPort)
 		// block until CONNECT returns OK or fails again
@@ -1248,14 +1248,33 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 		}
 		remainStart := 0
 		if r.isConnect && r.tryAntiDPI() && sv.isDirect() {
-			rand.Seed(time.Now().UnixNano())
-			// Make the 1st part doesn't contain sni
-			remainStart = n / 8
-			remainStart += rand.Intn(remainStart)
-			if dbgRq {
-				dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, remainStart)
+			// try to split SNI strings
+			remainStart = bytes.Index(rawBody, []byte(r.URL.Host))
+			if remainStart > -1 {
+				remainStart += len(r.URL.Host) / 2
+			} else {
+				remainStart = 0
 			}
-			if _, err = sv.Write(r.rawBody()[0:remainStart]); err != nil {
+		}
+		if remainStart > 0 {
+			// need the 1st fragment < 5
+			magicX := 4
+			if remainStart > magicX {
+				if dbgRq {
+					dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, magicX)
+				}
+				if _, err = sv.Write(rawBody[0:magicX]); err != nil {
+					debug.Println("cli->srv send to server error")
+					return
+				}
+				time.Sleep(time.Millisecond) // <--
+			} else {
+				magicX = 0
+			}
+			if dbgRq {
+				dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, remainStart - magicX)
+			}
+			if _, err = sv.Write(rawBody[magicX:remainStart]); err != nil {
 				debug.Println("cli->srv send to server error")
 				return
 			}
@@ -1264,7 +1283,7 @@ func copyClient2Server(c *clientConn, sv *serverConn, r *Request, srvStopped not
 				dbgRq.Printf("cli(%s)->srv(%s) antiDPI request: %d bytes\n", c.RemoteAddr(), r.URL.HostPort, n - remainStart)
 			}
 		}
-		if _, err = sv.Write(r.rawBody()[remainStart:]); err != nil {
+		if _, err = sv.Write(rawBody[remainStart:]); err != nil {
 			debug.Println("cli->srv send to server error")
 			return
 		}
